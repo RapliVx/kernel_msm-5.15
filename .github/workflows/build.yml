@@ -1,0 +1,66 @@
+name: "Build GKI"
+
+on:
+  workflow_dispatch:
+
+env:
+  KERNEL_NAME: "EvaCORE"
+  WORK_DIR: ${{ github.workspace }}
+
+jobs:
+  build-local:
+    name: "🔨 Build Current Repo"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "📥 Checkout Source"
+        uses: actions/checkout@v4
+        with:
+          path: source_code
+          fetch-depth: 1
+
+      - name: "⚡ Setup Environment"
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y repo rsync aria2
+          
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
+          repo sync --optimized-fetch --prune -j8
+          
+          rm -rf common
+          mv source_code common
+
+          mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
+          aria2c -x 16 -o clang.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
+          tar -xzf clang.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
+          
+          sed -i 's/^BRANCH=.*/BRANCH=android13-5.15/' common/build.config.constants
+          sed -i 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' common/build.config.constants
+          sed -i '/check_defconfig/d' common/build.config.gki || true
+
+      - name: "🏗️ Build Kernel"
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh -j$(nproc --all)
+          
+          mkdir -p out_final
+          cp out/dist/Image out_final/Image
+
+      - name: "📦 Package Zip"
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
+          cp out_final/Image AnyKernel3/
+          
+          ZIP_NAME="${{ env.KERNEL_NAME }}-$(date +'%Y-%m-%d').zip"
+          cd AnyKernel3 && zip -r9 "../$ZIP_NAME" * -x .git/*
+          echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: "✈️ Upload to Telegram"
+        if: success()
+        env:
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          CAPTION="✅ *Build Success!*%0A📦 *Kernel:* ${{ env.KERNEL_NAME }}%0A📅 $(date +'%d-%m-%Y')"
+          curl -F chat_id=$CHAT_ID -F document=@${{ env.ZIP_FILE }} -F caption="$CAPTION" -F parse_mode=Markdown https://api.telegram.org/bot$BOT_TOKEN/sendDocument
