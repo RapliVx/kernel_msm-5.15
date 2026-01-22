@@ -1,9 +1,12 @@
-name: "Build Eva With Mambo"
+name: "Build Eva With Mambo (Custom Repo)"
 
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
+  # --- CUSTOM BUILDER IDENTITY ---
+  LINUX_COMPILE_BY: "RapliVx"
+  LINUX_COMPILE_HOST: "MaybeALinux"
 
 on:
   workflow_dispatch:
@@ -33,7 +36,6 @@ jobs:
     env:
       WORK_DIR: ${{ github.workspace }}
       KERNEL_LOC_DIR: "kernel_workspace"
-      # Mengambil nilai dari Input User
       KERNEL_NAME: ${{ github.event.inputs.DIR_NAME }}
       KERNEL_REPO: ${{ github.event.inputs.REPO_URL }}
       KERNEL_BRANCH: ${{ github.event.inputs.REPO_BRANCH }}
@@ -42,7 +44,6 @@ jobs:
     steps:
       - name: "✨ Initialize MAGI System"
         run: |
-          # Menggunakan nama folder sebagai identifier
           SRC_NAME="${{ github.event.inputs.DIR_NAME }}"
           SRC_LOWER=$(echo "$SRC_NAME" | tr '[:upper:]' '[:lower:]')
            
@@ -88,7 +89,6 @@ jobs:
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
            
-          # Sedikit penyesuaian agar script tidak error jika file constants tidak ada (untuk repo non-GKI murni)
           if [ -f "${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants" ]; then
               sed -i \
                -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
@@ -99,19 +99,6 @@ jobs:
           if [ -f "${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki" ]; then
               sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
           fi
-
-      - name: "🧩 Applying S² Engine (Patches)"
-        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
-        run: |
-          apply_patch() {
-            local url="$1"
-            local file=$(basename "$url")
-            curl -L -o "$file" "$url"
-            patch -p1 < "$file" || echo "::warning::Hunks failed in $file"
-            rm -f "$file"
-          }
-          # Patch ini mungkin perlu dihapus jika repo custom Anda sudah dipatch atau bukan GKI murni
-          apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
       - name: "🔧 Injecting MamboSU + SUSFS"
         if: matrix.ksu == true
@@ -140,17 +127,6 @@ jobs:
            
           if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
             cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/
-          fi
-
-          KSU_PATCH="susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-           
-          if [ -f "$KSU_PATCH" ]; then
-            cd KernelSU
-            patch -p1 < ../$KSU_PATCH || echo "⚠️ KSU SUSFS patch failed"
-            cd ..
-          else
-            sed -i '/#include <linux\/pid.h>/a #include <linux/susfs.h>' KernelSU/kernel/ksu.c
-            sed -i '/ksu_core_init()/a \\tsusfs_init();' KernelSU/kernel/ksu.c
           fi
            
           rm -rf susfs4ksu
@@ -200,6 +176,10 @@ jobs:
       - name: "🔨 Building Eva Unit"
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          # Inject Host & User identity for the build
+          export KBUILD_BUILD_USER="${{ env.LINUX_COMPILE_BY }}"
+          export KBUILD_BUILD_HOST="${{ env.LINUX_COMPILE_HOST }}"
+          
           LTO=thin \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
@@ -241,4 +221,22 @@ jobs:
           ║               Pilot: @ErOneSoul                     ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
-          ║  "God'
+          ║  "God's in his Heaven. All's right with the world." ║
+          ║                                                     ║
+          ╚═════════════════════════════════════════════════════╝
+          Initializing EVA System...
+          EOF
+
+          ZIP_NAME="EvaCore-Mambo-Custom_${{ github.run_number }}_$(date +'%Y%m%d').zip"
+          cd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git/*
+          cd ..
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: "⬆️ Release to Github"
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        with:
+          files: ${{ env.ZIP_NAME }}
+          tag_name: "EVA-MAMBO-CUSTOM-RELEASE"
