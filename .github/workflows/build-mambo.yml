@@ -4,15 +4,15 @@ env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
-  # --- CUSTOM BUILDER IDENTITY ---
-  LINUX_COMPILE_BY: "RapliVx"
-  LINUX_COMPILE_HOST: "MaybeALinux"
+  # Mengambil username GitHub akun yang menjalankan action
+  LINUX_COMPILE_BY: "${{ github.actor }}"
+  LINUX_COMPILE_HOST: "GitHub-Actions"
 
 on:
   workflow_dispatch:
     inputs:
       REPO_URL:
-        description: 'URL Repository Kernel (Contoh: https://github.com/User/kernel_xiaomi_xun)'
+        description: 'URL Repository Kernel'
         required: true
         default: 'https://android.googlesource.com/kernel/common'
       REPO_BRANCH:
@@ -20,7 +20,7 @@ on:
         required: true
         default: 'android13-5.15-lts'
       DIR_NAME:
-        description: 'Nama Folder Source (Contoh: common, clo, atau xun)'
+        description: 'Nama Folder Source'
         required: true
         default: 'common'
 
@@ -42,7 +42,7 @@ jobs:
       DEFCONFIG_NAME: "gki_defconfig"
 
     steps:
-      - name: "✨ Initialize MAGI System"
+      - name: "✨ Initialize Build Variables"
         run: |
           SRC_NAME="${{ github.event.inputs.DIR_NAME }}"
           SRC_LOWER=$(echo "$SRC_NAME" | tr '[:upper:]' '[:lower:]')
@@ -51,59 +51,76 @@ jobs:
             echo "ENABLE_KSU=true" >> $GITHUB_ENV
             echo "OUTPUT_NAME=Image.${SRC_LOWER}.mambo" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-MamboSU" >> $GITHUB_ENV
+            echo "BUILD_TYPE=MamboSU + SUSFS" >> $GITHUB_ENV
           else
             echo "ENABLE_KSU=false" >> $GITHUB_ENV
             echo "OUTPUT_NAME=Image.${SRC_LOWER}.vanilla" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-Vanilla" >> $GITHUB_ENV
+            echo "BUILD_TYPE=Vanilla (No KSU)" >> $GITHUB_ENV
           fi
 
-      - name: "🛠️ Preparing GeoFront (Workspace)"
+      - name: "🛠️ Preparing Build Environment"
         run: |
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
-          echo "BUILD_TIME=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_ENV
+          
+          # Update & Install dependencies in one go
           sudo apt-get update -qq
-          sudo apt-get install -y repo rsync aria2
+          sudo apt-get install -y --no-install-recommends \
+            repo rsync aria2 git build-essential
 
-      - name: "🧬 Cloning Custom Source Code"
+          # Setup Git Config to avoid annoying warnings
+          git config --global user.email "bot@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: "🧬 Cloning Custom Kernel Source"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
-          echo "Cloning form: ${{ env.KERNEL_REPO }}"
-          echo "Branch: ${{ env.KERNEL_BRANCH }}"
+          echo "⬇️ Cloning from: ${{ env.KERNEL_REPO }}"
+          echo "🌿 Branch: ${{ env.KERNEL_BRANCH }}"
+          
           git clone --recursive --branch ${{ env.KERNEL_BRANCH }} \
             ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }} --depth=1
 
       - name: "📥 Syncing AOSP & Toolchains"
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          # Sync AOSP Common Kernel
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
-          repo sync --optimized-fetch --prune -j8
-           
+          repo sync --optimized-fetch --prune -j$(nproc)
           rm -rf .repo common
 
-          aria2c -x 16 -s 16 -o prebuilts/clang/host/linux-x86/clang-r547379.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
-          mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
-          tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
-          rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
+          # Download & Setup Clang
+          echo "⬇️ Downloading Clang r547379..."
+          CLANG_DIR="prebuilts/clang/host/linux-x86/clang-r547379"
+          mkdir -p "$CLANG_DIR"
+          
+          aria2c -x 16 -s 16 -o clang.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
+          tar -xzf clang.tar.gz -C "$CLANG_DIR"
+          rm -f clang.tar.gz
 
+          # Cleanup unused clangs to save space
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
            
-          if [ -f "${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants" ]; then
-              sed -i \
-               -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
-               -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
-               ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
+          # Adjust Configs if they exist
+          CONSTANTS_FILE="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants"
+          if [ -f "$CONSTANTS_FILE" ]; then
+              sed -i -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
+                     -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' "$CONSTANTS_FILE"
           fi
            
-          if [ -f "${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki" ]; then
-              sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
+          GKI_CONFIG="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki"
+          if [ -f "$GKI_CONFIG" ]; then
+              sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' "$GKI_CONFIG" || true
           fi
 
       - name: "🔧 Injecting MamboSU + SUSFS"
         if: matrix.ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
+          # Cleanup old KernelSU if exists
           rm -rf ./KernelSU ./drivers/kernelsu
            
           echo "📦 Installing MamboSU..."
@@ -112,22 +129,31 @@ jobs:
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
            
+          # Apply SUSFS Patch
           SUSFS_KERNEL_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-           
           if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
             echo "✅ SUSFS patch successfully applied"
           else
             echo "⚠️ SUSFS patch failed — copying files manually"
           fi
 
+          # Copy Headers & Source
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ] && cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
            
+          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
+            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/
+          fi
+
+          # Clean up temporary folder
           rm -rf susfs4ksu
+          
+          # Re-link driver
           [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
-           
+
+          # Configure KConfig
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
           CONFIG_KPROBES=y
@@ -135,16 +161,20 @@ jobs:
           CONFIG_KPROBE_EVENTS=y
           CONFIG_OVERLAY_FS=y
           CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
           CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=n
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          # CONFIG_KSU_SUSFS_TRY_UMOUNT is not set
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
           CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_MAP=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
@@ -171,6 +201,8 @@ jobs:
           # Inject Host & User identity for the build
           export KBUILD_BUILD_USER="${{ env.LINUX_COMPILE_BY }}"
           export KBUILD_BUILD_HOST="${{ env.LINUX_COMPILE_HOST }}"
+          
+          echo "🚀 Starting build for ${{ env.KERNEL_NAME }}..."
           
           LTO=thin \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
@@ -201,6 +233,8 @@ jobs:
         run: |
           set -e
           git clone --depth=1 https://github.com/RapliVx/Anykernel3_GKI.git -b topaz AnyKernel3
+          
+          # Move all images to AnyKernel3 folder
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
           # Membuat Banner Evangelion
@@ -210,7 +244,7 @@ jobs:
           ║            E V A N G E L I O N   K E R N E L      ║
           ║                                                     ║
           ║               KSU: MamboSU + sUsFS                  ║
-          ║               Pilot: @ErOneSoul                     ║
+          ║               Pilot: ${{ github.actor }}            ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
           ║  "God's in his Heaven. All's right with the world." ║
@@ -231,4 +265,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "EVA-MAMBO-CUSTOM-RELEASE"
+          tag_name: "EVA-MAMBO-CUSTOM-${{ github.run_number }}"
+          name: "Eva Kernel Build #${{ github.run_number }}"
+          body: |
+            ### 🚀 Automatic Build Info
+            
+            **Source Information:**
+            - **Repo:** `${{ github.event.inputs.REPO_URL }}`
+            - **Branch:** `${{ github.event.inputs.REPO_BRANCH }}`
+            - **Directory:** `${{ github.event.inputs.DIR_NAME }}`
+            
+            **Build Details:**
+            - **Date:** ${{ env.BUILD_TIME }}
+            - **Builder:** @${{ github.actor }}
+            - **Features:** MamboSU + SUSFS (Check file names)
+            
+            *Enjoy the custom kernel!*
