@@ -125,10 +125,6 @@ jobs:
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ] && cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
            
-          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/
-          fi
-           
           rm -rf susfs4ksu
           [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
            
