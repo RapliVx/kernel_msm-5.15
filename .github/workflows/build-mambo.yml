@@ -124,7 +124,7 @@ jobs:
           rm -rf ./KernelSU ./drivers/kernelsu
            
           echo "📦 Installing MamboSU..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/susfs-rksu-master/kernel/setup.sh" | bash -s susfs-rksu-master
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/susfs-resuki-builtin/kernel/setup.sh" | bash -s susfs-resuki-builtin
            
           echo "📦 Cloning SUSFS4KSU..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
@@ -156,6 +156,7 @@ jobs:
           # Configure KConfig
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
+          CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
@@ -167,7 +168,7 @@ jobs:
           CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
           CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
