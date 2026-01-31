@@ -4,7 +4,6 @@ env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
-  # Mengambil username GitHub akun yang menjalankan action
   LINUX_COMPILE_BY: "${{ github.actor }}"
   LINUX_COMPILE_HOST: "GitHub-Actions"
 
@@ -26,7 +25,7 @@ on:
 
 jobs:
   build-kernels:
-    name: "🚀 Build ${{ github.event.inputs.DIR_NAME }} [Mambo: ${{ matrix.ksu }}]"
+    name: "🚀 Build ${{ github.event.inputs.DIR_NAME }} [KSU: ${{ matrix.ksu }}]"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -49,9 +48,9 @@ jobs:
            
           if [ "${{ matrix.ksu }}" == "true" ]; then
             echo "ENABLE_KSU=true" >> $GITHUB_ENV
-            echo "OUTPUT_NAME=Image.${SRC_LOWER}.mambo" >> $GITHUB_ENV
-            echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-MamboSU" >> $GITHUB_ENV
-            echo "BUILD_TYPE=MamboSU + SUSFS" >> $GITHUB_ENV
+            echo "OUTPUT_NAME=Image.${SRC_LOWER}.ksu" >> $GITHUB_ENV
+            echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-KSU" >> $GITHUB_ENV
+            echo "BUILD_TYPE=KSU (xxksu)" >> $GITHUB_ENV
           else
             echo "ENABLE_KSU=false" >> $GITHUB_ENV
             echo "OUTPUT_NAME=Image.${SRC_LOWER}.vanilla" >> $GITHUB_ENV
@@ -64,12 +63,10 @@ jobs:
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
           echo "BUILD_TIME=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_ENV
           
-          # Update & Install dependencies in one go
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             repo rsync aria2 git build-essential
 
-          # Setup Git Config to avoid annoying warnings
           git config --global user.email "bot@github.com"
           git config --global user.name "GitHub Actions"
 
@@ -85,12 +82,10 @@ jobs:
       - name: "📥 Syncing AOSP & Toolchains"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          # Sync AOSP Common Kernel
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
           repo sync --optimized-fetch --prune -j$(nproc)
           rm -rf .repo common
 
-          # Download & Setup Clang
           echo "⬇️ Downloading Clang r547379..."
           CLANG_DIR="prebuilts/clang/host/linux-x86/clang-r547379"
           mkdir -p "$CLANG_DIR"
@@ -99,12 +94,10 @@ jobs:
           tar -xzf clang.tar.gz -C "$CLANG_DIR"
           rm -f clang.tar.gz
 
-          # Cleanup unused clangs to save space
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
            
-          # Adjust Configs if they exist
           CONSTANTS_FILE="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants"
           if [ -f "$CONSTANTS_FILE" ]; then
               sed -i -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
@@ -116,66 +109,31 @@ jobs:
               sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' "$GKI_CONFIG" || true
           fi
 
-      - name: "🔧 Injecting MamboSU + SUSFS"
+      - name: "🔧 Injecting KernelSU (xxksu)"
         if: matrix.ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           # Cleanup old KernelSU if exists
           rm -rf ./KernelSU ./drivers/kernelsu
            
-          echo "📦 Installing MamboSU..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/susfs-resuki-builtin/kernel/setup.sh" | bash -s susfs-resuki-builtin
-           
-          echo "📦 Cloning SUSFS4KSU..."
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
-           
-          # Apply SUSFS Patch
-          SUSFS_KERNEL_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
-          if patch -p1 < "$SUSFS_KERNEL_PATCH"; then
-            echo "✅ SUSFS patch successfully applied"
-          else
-            echo "⚠️ SUSFS patch failed — copying files manually"
-          fi
-
-          # Copy Headers & Source
-          mkdir -p fs include/linux
-          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
-          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
-          [ -f susfs4ksu/kernel_patches/include/linux/susfs_def.h ] && cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h
-           
-          if [ -d "susfs4ksu/kernel_patches/KernelSU/kernel" ]; then
-            cp -rf susfs4ksu/kernel_patches/KernelSU/kernel/* KernelSU/kernel/
-          fi
-
-          # Clean up temporary folder
-          rm -rf susfs4ksu
+          echo "📦 Installing KernelSU (xxksu)..."
+          # Menggunakan URL baru dan argumen xxksu sesuai permintaan
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s xxksu
           
           # Re-link driver
           [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
 
-          # Configure KConfig
+          # Configure KConfig (SUSFS Removed, Flags matched with Image)
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
-          CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
+          CONFIG_KSU_EXTRAS=y
+          CONFIG_KSU_TAMPER_SYSCALL_TABLE=y
+          CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y
+          CONFIG_KSU_LSM_SECURITY_HOOKS=y
           CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
           CONFIG_OVERLAY_FS=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=y
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
@@ -199,7 +157,6 @@ jobs:
       - name: "🔨 Building Eva Unit"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          # Inject Host & User identity for the build
           export KBUILD_BUILD_USER="${{ env.LINUX_COMPILE_BY }}"
           export KBUILD_BUILD_HOST="${{ env.LINUX_COMPILE_HOST }}"
           
@@ -235,16 +192,14 @@ jobs:
           set -e
           git clone --depth=1 https://github.com/RapliVx/Anykernel3_GKI.git -b topaz AnyKernel3
           
-          # Move all images to AnyKernel3 folder
           find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
 
-          # Membuat Banner Evangelion
           cat > AnyKernel3/banner << 'EOF'
           ╔═════════════════════════════════════════════════════╗
           ║                                                     ║
           ║            E V A N G E L I O N   K E R N E L      ║
           ║                                                     ║
-          ║               KSU: MamboSU + sUsFS                  ║
+          ║               KSU: xxksu                            ║
           ║               Pilot: ${{ github.actor }}            ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
@@ -254,7 +209,7 @@ jobs:
           Initializing EVA System...
           EOF
 
-          ZIP_NAME="EvaCore-Mambo-Custom_${{ github.run_number }}_$(date +'%Y%m%d').zip"
+          ZIP_NAME="EvaCore-Custom_${{ github.run_number }}_$(date +'%Y%m%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -266,7 +221,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "EVA-MAMBO-CUSTOM-${{ github.run_number }}"
+          tag_name: "EVA-CUSTOM-${{ github.run_number }}"
           name: "Eva Kernel Build #${{ github.run_number }}"
           body: |
             ### 🚀 Automatic Build Info
@@ -279,6 +234,6 @@ jobs:
             **Build Details:**
             - **Date:** ${{ env.BUILD_TIME }}
             - **Builder:** @${{ github.actor }}
-            - **Features:** MamboSU + SUSFS (Check file names)
+            - **Features:** KernelSU (xxksu)
             
             *Enjoy the custom kernel!*
