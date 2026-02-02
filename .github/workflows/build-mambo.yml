@@ -109,6 +109,30 @@ jobs:
               sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' "$GKI_CONFIG" || true
           fi
 
+
+      - name: "🧩 Configure kernel & patches"
+        working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
+        run: |
+          CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
+
+          # Helper
+          apply_patch() {
+            local url="$1"
+            local file=$(basename "$url")
+            curl -L -o "$file" "$url"
+            patch -p1 < "$file" || echo "::warning::Hunks failed in $file"
+            rm -f "$file"
+          }
+
+          # Common patches
+          apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
+
+          # Kernel-specific patches
+          echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
+            [ -n "$p" ] && apply_patch "$p"
+          done
+
       - name: "🔧 Injecting KernelSU (xxksu)"
         if: matrix.ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
