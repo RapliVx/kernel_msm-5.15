@@ -45,23 +45,20 @@ jobs:
         run: |
           SRC_NAME="${{ github.event.inputs.DIR_NAME }}"
           SRC_LOWER=$(echo "$SRC_NAME" | tr '[:upper:]' '[:lower:]')
-           
+            
           if [ "${{ matrix.ksu }}" == "true" ]; then
             echo "ENABLE_KSU=true" >> $GITHUB_ENV
             echo "OUTPUT_NAME=Image.${SRC_LOWER}.ksu" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-KSU" >> $GITHUB_ENV
-            echo "BUILD_TYPE=KSU (xxksu)" >> $GITHUB_ENV
           else
             echo "ENABLE_KSU=false" >> $GITHUB_ENV
             echo "OUTPUT_NAME=Image.${SRC_LOWER}.vanilla" >> $GITHUB_ENV
             echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-Vanilla" >> $GITHUB_ENV
-            echo "BUILD_TYPE=Vanilla (No KSU)" >> $GITHUB_ENV
           fi
 
       - name: "🛠️ Preparing Build Environment"
         run: |
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
-          echo "BUILD_TIME=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_ENV
           
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
@@ -97,18 +94,17 @@ jobs:
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
-           
+            
           CONSTANTS_FILE="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants"
           if [ -f "$CONSTANTS_FILE" ]; then
               sed -i -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
                      -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' "$CONSTANTS_FILE"
           fi
-           
+            
           GKI_CONFIG="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki"
           if [ -f "$GKI_CONFIG" ]; then
               sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' "$GKI_CONFIG" || true
           fi
-
 
       - name: "🧩 Configure kernel & patches"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -116,7 +112,6 @@ jobs:
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
 
-          # Helper
           apply_patch() {
             local url="$1"
             local file=$(basename "$url")
@@ -125,29 +120,19 @@ jobs:
             rm -f "$file"
           }
 
-          # Common patches
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
-
-          # Kernel-specific patches
-          echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
-            [ -n "$p" ] && apply_patch "$p"
-          done
 
       - name: "🔧 Injecting KernelSU (xxksu)"
         if: matrix.ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          # Cleanup old KernelSU if exists
           rm -rf ./KernelSU ./drivers/kernelsu
-           
+            
           echo "📦 Installing KernelSU (xxksu)..."
-          # Menggunakan URL baru dan argumen xxksu sesuai permintaan
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s xxksu
           
-          # Re-link driver
           [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
 
-          # Configure KConfig (SUSFS Removed, Flags matched with Image)
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_EXTRAS=y
@@ -202,7 +187,7 @@ jobs:
           retention-days: 1
 
   package-kernels:
-    name: "📦 Deploying EVA Packages"
+    name: "📦 Deploying EVA AIO Package"
     runs-on: ubuntu-latest
     needs: [build-kernels]
     steps:
@@ -211,19 +196,34 @@ jobs:
         with:
           path: ./artifacts/
 
-      - name: "📦 Packaging Release"
+      - name: "🕒 Prepare Release Variables"
+        run: |
+          echo "BUILD_TIME=$(TZ=Asia/Jakarta date +'%H:%M')" >> $GITHUB_ENV
+          echo "BUILD_DATE=$(TZ=Asia/Jakarta date +'%Y%m%d')" >> $GITHUB_ENV
+
+      - name: "📦 Packaging AIO Release"
         run: |
           set -e
+          # 1. Clone AnyKernel3
           git clone --depth=1 https://github.com/RapliVx/Anykernel3_GKI.git -b topaz AnyKernel3
           
-          find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
+          # 2. Hapus sisa Image bawaan repo
+          rm -f AnyKernel3/Image* AnyKernel3/dtb* AnyKernel3/dtbo*
 
+          # 3. Copy Kernel (Selector Mode)
+          echo "📂 Copying KSU Kernel..."
+          find ./artifacts -name "*.ksu" -exec cp {} AnyKernel3/Image-ksu \;
+          
+          echo "📂 Copying Vanilla Kernel..."
+          find ./artifacts -name "*.vanilla" -exec cp {} AnyKernel3/Image-vanilla \;
+
+          # 4. Buat Banner
           cat > AnyKernel3/banner << 'EOF'
           ╔═════════════════════════════════════════════════════╗
           ║                                                     ║
           ║            E V A N G E L I O N   K E R N E L      ║
           ║                                                     ║
-          ║               KSU: xxksu                            ║
+          ║            [ AIO SELECTOR EDITION ]                 ║
           ║               Pilot: ${{ github.actor }}            ║
           ╠═════════════════════════════════════════════════════╣
           ║                                                     ║
@@ -233,11 +233,24 @@ jobs:
           Initializing EVA System...
           EOF
 
-          ZIP_NAME="EvaCore-Custom_${{ github.run_number }}_$(date +'%Y%m%d').zip"
-          cd AnyKernel3
-          zip -r9 "../$ZIP_NAME" * -x .git/*
-          cd ..
+          # 5. Compress & MD5 (Improved Logic)
+          ZIP_NAME="EvaCore-AIO_${{ github.run_number }}_${{ env.BUILD_DATE }}.zip"
+          
+          echo "🗜️ Compressing package..."
+          pushd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git .git/* .gitignore README.md *placeholder
+          popd
+          
+          # Generate MD5 & Size
+          MD5=$(md5sum "$ZIP_NAME" | cut -d ' ' -f 1)
+          SIZE=$(du -h "$ZIP_NAME" | cut -f1)
+          
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "MD5_SUM=$MD5" >> $GITHUB_ENV
+          echo "FILE_SIZE=$SIZE" >> $GITHUB_ENV
+          
+          echo "✅ Package Created: $ZIP_NAME ($SIZE)"
+          echo "🔐 MD5: $MD5"
 
       - name: "⬆️ Release to Github"
         uses: softprops/action-gh-release@v1
@@ -246,18 +259,33 @@ jobs:
         with:
           files: ${{ env.ZIP_NAME }}
           tag_name: "EVA-CUSTOM-${{ github.run_number }}"
-          name: "Eva Kernel Build #${{ github.run_number }}"
+          name: "EVA Unit Build: #${{ github.run_number }}"
           body: |
-            ### 🚀 Automatic Build Info
+            ## 🧬 EvaCORE LOG // BUILD #${{ github.run_number }}
             
-            **Source Information:**
-            - **Repo:** `${{ github.event.inputs.REPO_URL }}`
-            - **Branch:** `${{ github.event.inputs.REPO_BRANCH }}`
-            - **Directory:** `${{ github.event.inputs.DIR_NAME }}`
+            > *"God's in his Heaven. All's right with the world."*
             
-            **Build Details:**
-            - **Date:** ${{ env.BUILD_TIME }}
-            - **Builder:** @${{ github.actor }}
-            - **Features:** KernelSU (xxksu)
-            
-            *Enjoy the custom kernel!*
+            ### 📊 Synchronization Data
+            | Parameter | Status |
+            | :--- | :--- |
+            | **📅 Date** | ${{ env.BUILD_DATE }} |
+            | **⏰ Time** | ${{ env.BUILD_TIME }} WIB |
+            | **👤 Pilot** | @${{ github.actor }} |
+            | **⚙️ Type** | **AIO (Selector Mode)** |
+            | **⚖️ Size** | ${{ env.FILE_SIZE }} |
+            | **🔐 MD5** | `${{ env.MD5_SUM }}` |
+
+            ### 📂 Source Material
+            ```yaml
+            Repository : ${{ github.event.inputs.REPO_URL }}
+            Branch     : ${{ github.event.inputs.REPO_BRANCH }}
+            Target Dir : ${{ github.event.inputs.DIR_NAME }}
+            ```
+
+            ### ⚠️ Deployment Instructions
+            1. Download the **ZIP** file below.
+            2. Reboot to **Recovery (TWRP/OFRP)**.
+            3. Flash the file.
+            4. **Follow the On-Screen Menu:**
+               - 🔊 **Vol Up** for **KernelSU**
+               - 🔉 **Vol Down** for **Vanilla**
