@@ -1,124 +1,131 @@
-name: "Build Eva With Mambo (Custom Repo)"
+name: "PROJECT-EVA: EVA-01 // XXKSU PROTOCOL"
 
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
-  LINUX_COMPILE_BY: "${{ github.actor }}"
-  LINUX_COMPILE_HOST: "GitHub-Actions"
 
 on:
+  schedule:
+    - cron: '0 0 * * 0'
   workflow_dispatch:
-    inputs:
-      REPO_URL:
-        description: 'URL Repository Kernel'
-        required: true
-        default: 'https://android.googlesource.com/kernel/common'
-      REPO_BRANCH:
-        description: 'Branch Repository'
-        required: true
-        default: 'android13-5.15-lts'
-      DIR_NAME:
-        description: 'Nama Folder Source'
-        required: true
-        default: 'common'
-      LOCAL_VERSION:
-        description: 'Nama Local Version (Contoh: -Eva-v1)'
-        required: false
-        default: '-EvaCORE'
 
 jobs:
   build-kernels:
-    name: "🚀 Build ${{ github.event.inputs.DIR_NAME }} [KSU: ${{ matrix.ksu }}]"
+    name: "🛡️ EVA-UNIT: ${{ matrix.kernel.name }} // LAUNCH"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        ksu: [true, false]
+        kernel:
+          - name: "UNIT-01 (GKI)"
+            dir: "common_gki"
+            repo_name: "common"
+            repo_url: "https://android.googlesource.com/kernel/common"
+            branch: "android13-5.15-lts"
+            defconfig: "gki_defconfig"
+            local_version: "-YASK-EVA-01-GKI"
+            output_name: "Image.gki.ksu"
+            enable_ksu: true
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+          - name: "UNIT-02 (CLO)"
+            dir: "common_clo"
+            repo_name: "clo"
+            repo_url: "https://git.codelinaro.org/clo/la/kernel/msm-5.15.git"
+            branch: "kernel.lnx.5.15.r1-rel"
+            defconfig: "gki_defconfig"
+            local_version: "-YASK-EVA-02-CLO"
+            output_name: "Image.clo.ksu"
+            enable_ksu: true
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+          - name: "DUMMY-PLUG (GKI-NoKSU)"
+            dir: "common_gki_noksu"
+            repo_name: "common"
+            repo_url: "https://android.googlesource.com/kernel/common"
+            branch: "android13-5.15-lts"
+            defconfig: "gki_defconfig"
+            local_version: "-YASK-DUMMY-GKI"
+            output_name: "Image.gki.noksu"
+            enable_ksu: false
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+          - name: "DUMMY-PLUG (CLO-NoKSU)"
+            dir: "common_clo_noksu"
+            repo_name: "clo"
+            repo_url: "https://git.codelinaro.org/clo/la/kernel/msm-5.15.git"
+            branch: "kernel.lnx.5.15.r1-rel"
+            defconfig: "gki_defconfig"
+            local_version: "-YASK-DUMMY-CLO"
+            output_name: "Image.clo.noksu"
+            enable_ksu: false
+            extra_patches:
+              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
 
     env:
+      KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
+      KERNEL_NAME: ${{ matrix.kernel.repo_name }}
+      KERNEL_REPO: ${{ matrix.kernel.repo_url }}
+      KERNEL_BRANCH: ${{ matrix.kernel.branch }}
+      DEFCONFIG_NAME: ${{ matrix.kernel.defconfig }}
+      LOCAL_VERSION: ${{ matrix.kernel.local_version }}
+      OUTPUT_NAME: ${{ matrix.kernel.output_name }}
       WORK_DIR: ${{ github.workspace }}
-      KERNEL_LOC_DIR: "kernel_workspace"
-      KERNEL_NAME: ${{ github.event.inputs.DIR_NAME }}
-      KERNEL_REPO: ${{ github.event.inputs.REPO_URL }}
-      KERNEL_BRANCH: ${{ github.event.inputs.REPO_BRANCH }}
-      DEFCONFIG_NAME: "gki_defconfig"
 
     steps:
-      - name: "✨ Initialize Build Variables"
-        run: |
-          SRC_NAME="${{ github.event.inputs.DIR_NAME }}"
-          SRC_LOWER=$(echo "$SRC_NAME" | tr '[:upper:]' '[:lower:]')
-            
-          if [ "${{ matrix.ksu }}" == "true" ]; then
-            echo "ENABLE_KSU=true" >> $GITHUB_ENV
-            echo "OUTPUT_NAME=Image.${SRC_LOWER}.ksu" >> $GITHUB_ENV
-            echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-KSU" >> $GITHUB_ENV
-          else
-            echo "ENABLE_KSU=false" >> $GITHUB_ENV
-            echo "OUTPUT_NAME=Image.${SRC_LOWER}.vanilla" >> $GITHUB_ENV
-            echo "ARTIFACT_NAME=Eva-Kernel-${SRC_NAME}-Vanilla" >> $GITHUB_ENV
-          fi
-
-      - name: "🛠️ Preparing Build Environment"
+      - name: "⬢ [SYSTEM_START] :: GEOFRONT_INIT"
         run: |
           mkdir -p ${{ env.KERNEL_LOC_DIR }}
-          
+          echo "BUILD_TIME=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            repo rsync aria2 git build-essential
+          sudo apt-get install -y repo rsync aria2
 
-          git config --global user.email "bot@github.com"
-          git config --global user.name "GitHub Actions"
-
-      - name: "🧬 Cloning Custom Kernel Source"
+      - name: "⬢ [DATA_SYNC] :: SOURCE_CODE_RETRIEVAL"
         working-directory: ./${{ env.KERNEL_LOC_DIR }}
         run: |
-          echo "⬇️ Cloning from: ${{ env.KERNEL_REPO }}"
-          echo "🌿 Branch: ${{ env.KERNEL_BRANCH }}"
-          
           git clone --recursive --branch ${{ env.KERNEL_BRANCH }} \
             ${{ env.KERNEL_REPO }} ${{ env.KERNEL_NAME }} --depth=1
 
-      - name: "📥 Syncing AOSP & Toolchains"
+      - name: "⬢ [LCL_INJECTION] :: AOSP_ENVIRONMENT_SYNC"
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          # Initialize AOSP repo
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android13-5.15-lts --depth=1
-          repo sync --optimized-fetch --prune -j$(nproc)
-          rm -rf .repo common
-
-          echo "⬇️ Downloading Clang r547379..."
-          CLANG_DIR="prebuilts/clang/host/linux-x86/clang-r547379"
-          mkdir -p "$CLANG_DIR"
+          repo sync --optimized-fetch --prune -j8
           
-          aria2c -x 16 -s 16 -o clang.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
-          tar -xzf clang.tar.gz -C "$CLANG_DIR"
-          rm -f clang.tar.gz
+          # Clean up existing repo and common directories
+          rm -rf .repo
+          rm -rf common
 
+          # Download and setup custom clang toolchain
+          aria2c -x 16 -s 16 -o prebuilts/clang/host/linux-x86/clang-r547379.tar.gz "https://github.com/topnotchfreaks/clang/releases/download/v1.0.0/clang-r547379.tar.gz"
+          mkdir -p prebuilts/clang/host/linux-x86/clang-r547379
+          tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
+          rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
+
+          # Remove unused clang for more space
           rm -rf prebuilts/clang/host/linux-x86/clang-3289846
           rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
           rm -rf prebuilts/clang/host/linux-x86/clang-stable
-            
-          CONSTANTS_FILE="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants"
-          if [ -f "$CONSTANTS_FILE" ]; then
-              sed -i -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
-                     -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' "$CONSTANTS_FILE"
-          fi
-            
-          GKI_CONFIG="${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki"
-          if [ -f "$GKI_CONFIG" ]; then
-              sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' "$GKI_CONFIG" || true
-          fi
+          
+          # Update build config constants
+          sed -i \
+           -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
+           -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
+           ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
+          
+          # Remove defconfig check (if exists)
+          sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
 
-      - name: "🧩 Configure kernel & patches"
+      - name: "⬢ [SYNCHRONIZATION] :: CONFIG_PATCH_MATRIX"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          
-          # Inject Custom Local Version
-          echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCAL_VERSION }}\"" >> "$CONFIG_FILE"
+          echo "CONFIG_LOCALVERSION=\"${{ env.LOCAL_VERSION }}-${{ env.BUILD_TIME }}\"" >> "$CONFIG_FILE"
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
 
+          # Helper
           apply_patch() {
             local url="$1"
             local file=$(basename "$url")
@@ -127,15 +134,21 @@ jobs:
             rm -f "$file"
           }
 
+          # Common patches
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-      - name: "🔧 Injecting KernelSU (xxksu)"
-        if: matrix.ksu == true
+          # Kernel-specific patches
+          echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
+            [ -n "$p" ] && apply_patch "$p"
+          done
+
+      - name: "🧬 [ENTRY_PLUG] :: INJECTING_KERNELSU_XXKSU"
+        if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           rm -rf ./KernelSU ./drivers/kernelsu
-            
-          echo "📦 Installing KernelSU (xxksu)..."
+          
+          echo "📦 [XXKSU] :: SYNCHRONIZING..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s xxksu
           
           [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
@@ -153,12 +166,14 @@ jobs:
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
+          echo "✅ XXKSU: INTEGRATION COMPLETE."
 
-      - name: "⚙️ Synchronizing Core Configs"
+      - name: "⬢ [S2_ENGINE] :: CORE_CONFIG_HARMONIZATION"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
           echo "CONFIG_KALLSYMS=y" >> "$CONFIG_FILE"
+          
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
           CONFIG_TCP_CONG_ADVANCED=y
@@ -170,131 +185,123 @@ jobs:
           CONFIG_OVERLAY_FS=y
           EOF
 
-      - name: "🔨 Building Eva Unit"
+      - name: "⚔️ [OPERATION_START] :: COMPILATION_PROCESS"
         working-directory: ${{ env.WORK_DIR }}
         run: |
-          export KBUILD_BUILD_USER="${{ env.LINUX_COMPILE_BY }}"
-          export KBUILD_BUILD_HOST="${{ env.LINUX_COMPILE_HOST }}"
-          
-          echo "🚀 Starting build for ${{ env.KERNEL_NAME }}..."
-          
           LTO=thin \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
           build/build.sh -j$(nproc --all)
 
-      - name: "📁 Securing Kernel Image"
+      - name: "⬢ [OUTPUT_HANDLING] :: ARTIFACT_EXTRACTION"
         working-directory: ${{ env.WORK_DIR }}/out/dist
-        run: cp Image "${{ env.OUTPUT_NAME }}"
+        run: |
+          cp Image "${{ env.OUTPUT_NAME }}"
 
-      - name: "📤 Uploading to Central Dogma"
+      - name: "📤 [DATA_UPLOAD] :: CLOUD_PRESERVATION"
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: ${{ matrix.kernel.name }}-kernel
           path: ${{ env.WORK_DIR }}/out/dist/${{ env.OUTPUT_NAME }}
           retention-days: 1
 
   package-kernels:
-    name: "📦 Deploying EVA AIO Package"
+    name: "🧬 HUMAN_INSTRUMENTALITY :: FINAL_PACKAGING"
     runs-on: ubuntu-latest
     needs: [build-kernels]
     steps:
-      - name: "📥 Retrieving Artifacts"
+      - name: "📥 [RETRIEVAL] :: ARTIFACT_COLLECTION"
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts/
 
-      - name: "🕒 Prepare Release Variables"
-        run: |
-          echo "BUILD_TIME=$(TZ=Asia/Jakarta date +'%H:%M')" >> $GITHUB_ENV
-          echo "BUILD_DATE=$(TZ=Asia/Jakarta date +'%Y%m%d')" >> $GITHUB_ENV
-
-      - name: "📦 Packaging AIO Release"
+      - name: "📦 [COMPLETION] :: CREATE_RELEASE_PACKAGE"
         run: |
           set -e
-          # 1. Clone AnyKernel3
-          git clone --depth=1 https://github.com/RapliVx/Anykernel3.git -b GKI AnyKernel3
-          
-          # 2. Hapus sisa Image bawaan repo
-          rm -f AnyKernel3/Image* AnyKernel3/dtb* AnyKernel3/dtbo*
 
-          # 3. Copy Kernel (Selector Mode)
-          echo "📂 Copying KSU Kernel..."
-          find ./artifacts -name "*.ksu" -exec cp {} AnyKernel3/Image-ksu \;
-          
-          echo "📂 Copying Vanilla Kernel..."
-          find ./artifacts -name "*.vanilla" -exec cp {} AnyKernel3/Image-vanilla \;
+          # Clone AnyKernel3
+          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
 
-          # 4. Buat Banner
+          # Copy kernel images
+          find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
+
+          # Create EVA-01 ASCII Banner
           cat > AnyKernel3/banner << 'EOF'
-          ╔═════════════════════════════════════════════════════╗
-          ║                                                     ║
-          ║            E V A N G E L I O N   K E R N E L      ║
-          ║                                                     ║
-          ║            [ AIO SELECTOR EDITION ]                 ║
-          ║               Pilot: ${{ github.actor }}            ║
-          ╠═════════════════════════════════════════════════════╣
-          ║                                                     ║
-          ║  "God's in his Heaven. All's right with the world." ║
-          ║                                                     ║
-          ╚═════════════════════════════════════════════════════╝
-          Initializing EVA System...
+          ╔══════════════════════════════════════════════════════════╗
+          ║                                                          ║
+          ║            .           .        YASK PROJECT             ║
+          ║          /' \         / `\      EVA-01 BUILD             ║
+          ║         /   | .---. |   \                              ║
+          ║        |    |/  _  \|    |    [SYSTEM: XXKSU]          ║
+          ║        |    |\   _  /|    |    [STATUS: STABLE]         ║
+          ║         \   | '---' |   /                              ║
+          ║          \./  \   /  \./      NERV TACTICAL            ║
+          ║           |    | |    |       OPERATIONS               ║
+          ║           |    | |    |                                ║
+          ║           |    | |    |       SYNC RATE: 100%          ║
+          ║          /|    | |    |\                               ║
+          ║         | \    | |    / |                              ║
+          ║         |  \   | |   /  |                              ║
+          ║                                                          ║
+          ╠══════════════════════════════════════════════════════════╣
+          ║  [PILOT REPORT]                                          ║
+          ║  > KSU_TYPE: XXKSU (RAPLIVX)                             ║
+          ║  > MODULES: ENABLED (KSU EXTRAS)                         ║
+          ║  > COMPILER: CLANG R547379                               ║
+          ║                                                          ║
+          ║  [TARGET DEVICE]                                         ║
+          ║  > MODEL: Redmi Note 12/13/PadSE                         ║
+          ║  > MISSION: KERNEL INSTRUMENTALITY                       ║
+          ╚══════════════════════════════════════════════════════════╝
+           INITIALIZING ENTRY PLUG...
           EOF
 
-          # 5. Compress & MD5
-          ZIP_NAME="EvaCore-AIO-${{ env.BUILD_DATE }}.zip"
-          
-          echo "🗜️ Compressing package..."
-          pushd AnyKernel3
-          zip -r9 "../$ZIP_NAME" * -x .git .git/* .gitignore README.md *placeholder
-          popd
-          
-          # Generate MD5 & Size
-          MD5=$(md5sum "$ZIP_NAME" | cut -d ' ' -f 1)
-          SIZE=$(du -h "$ZIP_NAME" | cut -f1)
+          # Create ZIP
+          ZIP_NAME="YASK-EVA01-XXKSU_$(date +'%Y-%m-%d').zip"
+          cd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git/*
+          cd ..
           
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          echo "MD5_SUM=$MD5" >> $GITHUB_ENV
-          echo "FILE_SIZE=$SIZE" >> $GITHUB_ENV
-          
-          echo "✅ Package Created: $ZIP_NAME ($SIZE)"
-          echo "🔐 MD5: $MD5"
+          echo "✅ INSTRUMENTALITY COMPLETE: $ZIP_NAME"
 
-      - name: "⬆️ Release to Github"
+      - name: "⬆️ [DEPLOY] :: GITHUB_RELEASE"
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "EVA-CUSTOM-${{ github.run_number }}"
-          name: "EVA Unit Build: #${{ github.run_number }}"
-          body: |
-            ## 🧬 EvaCORE LOG // BUILD #${{ github.run_number }}
-            
-            > *"God's in his Heaven. All's right with the world."*
-            
-            ### 📊 Synchronization Data
-            | Parameter | Status |
-            | :--- | :--- |
-            | **📅 Date** | ${{ env.BUILD_DATE }} |
-            | **⏰ Time** | ${{ env.BUILD_TIME }} WIB |
-            | **👤 Pilot** | @${{ github.actor }} |
-            | **⚙️ Type** | **AIO (Selector Mode)** |
-            | **🏷️ Ver** | `${{ github.event.inputs.LOCAL_VERSION }}` |
-            | **⚖️ Size** | ${{ env.FILE_SIZE }} |
-            | **🔐 MD5** | `${{ env.MD5_SUM }}` |
+          tag_name: "YASK-EVA-XXKSU"
 
-            ### 📂 Source Material
-            ```yaml
-            Repository : ${{ github.event.inputs.REPO_URL }}
-            Branch     : ${{ github.event.inputs.REPO_BRANCH }}
-            Target Dir : ${{ github.event.inputs.DIR_NAME }}
-            Local Ver  : ${{ github.event.inputs.LOCAL_VERSION }}
-            ```
+      - name: "📡 [MAGI_SYSTEM] :: BROADCAST_STATUS"
+        if: success()
+        run: |
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/YASK-EVA-XXKSU"
+          MESSAGE="<b>🚨 MAGI SYSTEM // PRIORITY ALERT 🚨</b>%0A%0A"
+          MESSAGE="${MESSAGE}<b>OPERATION:</b> YASK EVA-01 XXKSU%0A"
+          MESSAGE="${MESSAGE}<b>STATUS:</b> <pre>MISSION ACCOMPLISHED</pre>%0A%0A"
+          MESSAGE="${MESSAGE}<b>📦 CONTAINMENT UNIT:</b>%0A"
+          MESSAGE="${MESSAGE}<code>${{ env.ZIP_NAME }}</code>%0A%0A"
+          MESSAGE="${MESSAGE}<b>📊 SYNCHRONIZATION REPORT:</b>%0A"
+          MESSAGE="${MESSAGE}⬢ UNIT-01: GKI + XXKSU%0A"
+          MESSAGE="${MESSAGE}⬢ UNIT-02: CLO + XXKSU%0A"
+          MESSAGE="${MESSAGE}⬢ DUMMY: NO-KSU VARIANTS%0A%0A"
+          MESSAGE="${MESSAGE}🔗 <a href='${RELEASE_URL}'>ACCESS TERMINAL DOGMA</a>"
+          
+          curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ env.TELEGRAM_CHAT_ID }}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML" \
+            -d disable_web_page_preview=true
 
-            ### ⚠️ Deployment Instructions
-            1. Download the **ZIP** file below.
-            2. Reboot to **Recovery (TWRP/OFRP)**.
-            3. Flash the file.
-            4. **Follow the On-Screen Menu:**
-               - 🔊 **Vol Up** for **KernelSU**
-               - 🔉 **Vol Down** for **Vanilla**
+      - name: "💔 [THIRD_IMPACT] :: SYSTEM_FAILURE"
+        if: failure()
+        run: |
+          MESSAGE="<b>⚠️ EMERGENCY // THIRD IMPACT IMMINENT ⚠️</b>%0A%0A"
+          MESSAGE="${MESSAGE}<b>SYSTEM STATE:</b> CRITICAL FAILURE%0A"
+          MESSAGE="${MESSAGE}<b>DIAGNOSTIC:</b> PATTERN BLUE DETECTED%0A%0A"
+          MESSAGE="${MESSAGE}🔗 <a href='https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}'>VIEW FLIGHT RECORDER</a>"
+          
+          curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ env.TELEGRAM_CHAT_ID }}" \
+            -d text="${MESSAGE}" \
+            -d parse_mode="HTML"
