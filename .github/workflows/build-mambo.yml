@@ -22,6 +22,10 @@ on:
         description: 'Nama Folder Source'
         required: true
         default: 'common'
+      LOCAL_VERSION:
+        description: 'Nama Local Version (Contoh: -Eva-v1)'
+        required: false
+        default: '-EvaCORE'
 
 jobs:
   build-kernels:
@@ -110,6 +114,9 @@ jobs:
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
+          
+          # Inject Custom Local Version
+          echo "CONFIG_LOCALVERSION=\"${{ github.event.inputs.LOCAL_VERSION }}\"" >> "$CONFIG_FILE"
           echo "CONFIG_LOCALVERSION_AUTO=n" >> "$CONFIG_FILE"
 
           apply_patch() {
@@ -205,7 +212,7 @@ jobs:
         run: |
           set -e
           # 1. Clone AnyKernel3
-          git clone --depth=1 https://github.com/RapliVx/AnyKernel3.git -b GKI AnyKernel3
+          git clone --depth=1 https://github.com/RapliVx/Anykernel3.git -b GKI AnyKernel3
           
           # 2. Hapus sisa Image bawaan repo
           rm -f AnyKernel3/Image* AnyKernel3/dtb* AnyKernel3/dtbo*
@@ -233,7 +240,7 @@ jobs:
           Initializing EVA System...
           EOF
 
-          # 5. Compress & MD5 (Improved Logic)
+          # 5. Compress & MD5
           ZIP_NAME="EvaCore-AIO-${{ env.BUILD_DATE }}.zip"
           
           echo "🗜️ Compressing package..."
@@ -272,6 +279,7 @@ jobs:
             | **⏰ Time** | ${{ env.BUILD_TIME }} WIB |
             | **👤 Pilot** | @${{ github.actor }} |
             | **⚙️ Type** | **AIO (Selector Mode)** |
+            | **🏷️ Ver** | `${{ github.event.inputs.LOCAL_VERSION }}` |
             | **⚖️ Size** | ${{ env.FILE_SIZE }} |
             | **🔐 MD5** | `${{ env.MD5_SUM }}` |
 
@@ -280,6 +288,7 @@ jobs:
             Repository : ${{ github.event.inputs.REPO_URL }}
             Branch     : ${{ github.event.inputs.REPO_BRANCH }}
             Target Dir : ${{ github.event.inputs.DIR_NAME }}
+            Local Ver  : ${{ github.event.inputs.LOCAL_VERSION }}
             ```
 
             ### ⚠️ Deployment Instructions
