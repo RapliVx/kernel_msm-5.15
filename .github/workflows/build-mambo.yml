@@ -137,11 +137,6 @@ jobs:
           # Common patches
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-          # Kernel-specific patches
-          echo '${{ toJSON(matrix.kernel.extra_patches) }}' | jq -r '.[]' | while read p; do
-            [ -n "$p" ] && apply_patch "$p"
-          done
-
       - name: "🧬 [ENTRY_PLUG] :: INJECTING_KERNELSU_XXKSU"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
