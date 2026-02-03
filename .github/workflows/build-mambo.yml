@@ -1,4 +1,4 @@
-name: "ProjectEVA: XXKSU"
+name: "ProjectEVA: MAMBOSU // SUSFS"
 
 env:
   OUT_DIR: "out"
@@ -108,9 +108,9 @@ jobs:
           
           # Config Update
           sed -i \
-            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
-            -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
-            ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
+           -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
+           -e 's/^CLANG_VERSION=.*/CLANG_VERSION=r547379/' \
+           ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.constants
           
           sed -i '/^POST_DEFCONFIG_CMDS="check_defconfig"/d' ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki || true
 
@@ -131,33 +131,68 @@ jobs:
 
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-      - name: "🧬 [ENTRY_PLUG] :: INJECTING_KERNELSU_XXKSU"
+      - name: "☢️ [CODE_777] :: MAMBOSU + SUSFS PROTOCOL"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
-          rm -rf ./KernelSU ./drivers/kernelsu
+          set -e
           
-          echo "📦 [XXKSU] :: SYNCHRONIZING..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s xxksu
+          # Cleanup
+          rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          [ ! -L "drivers/kernelsu" ] && ln -sf ../KernelSU drivers/kernelsu
+          # 1. Prepare SUSFS Drivers (Kernel Side)
+          echo "📦 [SUSFS_SYSTEM] :: RETRIEVING DRIVERS..."
+          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
+          
+          # Apply SUSFS Kernel Patch
+          SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
+          if [ -f "$SUSFS_PATCH" ]; then
+             patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ AT-FIELD: Patch conflict ignored."
+          fi
+          
+          # Install SUSFS Headers/Source
+          mkdir -p fs include/linux
+          cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
+          cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h || true
+          
+          # 2. Install MamboSU (RapliVx)
+          echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+          
+          # Symlink check (Mambo setup usually creates KernelSU dir, ensuring symlink)
+          if [ ! -L "drivers/kernelsu" ]; then
+             ln -sf ../KernelSU drivers/kernelsu
+          fi
 
+          # 3. Apply Configs
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
-          CONFIG_KSU_EXTRAS=y
-          CONFIG_KSU_TAMPER_SYSCALL_TABLE=y
-          CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y
-          CONFIG_KSU_LSM_SECURITY_HOOKS=y
-          CONFIG_KPROBES=n
+          CONFIG_KPROBES=y
           CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
           CONFIG_OVERLAY_FS=y
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=n
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
           EOF
-          echo "✅ XXKSU: INTEGRATION COMPLETE."
+          
+          rm -rf susfs4ksu
+          echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED."
 
-      - name: "⬢ [S2_ENGINE] :: CORE_CONFIG_HARMONIZATION"
+      - name: "⬢ [OPTIMIZATION] :: REMOVING_LIMITERS"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
@@ -172,6 +207,8 @@ jobs:
           CONFIG_TCP_CONG_BBR=y
           CONFIG_DEFAULT_WESTWOOD=y
           CONFIG_OVERLAY_FS=y
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
       - name: "⚔️ [OPERATION_START] :: COMPILATION_PROCESS"
@@ -179,7 +216,6 @@ jobs:
         run: |
           LTO=thin \
           BUILD_CONFIG=${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}/build.config.gki.aarch64 \
-          ABI_DEFINITION="" \
           build/build.sh -j$(nproc --all)
 
       - name: "⬢ [OUTPUT_HANDLING] :: ARTIFACT_EXTRACTION"
@@ -230,11 +266,11 @@ jobs:
           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⢱⢃⠀⠀⠀⠀⠀⠀⠀⠀⠀
           ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀
 
-          ProjectEVA // XXKSU PROTOCOL
+          ProjectEVA // MAMBOSU PROTOCOL
           EOF
 
           # Create ZIP
-          ZIP_NAME="ProjectEVA-XXKSU_$(date +'%Y-%m-%d').zip"
+          ZIP_NAME="ProjectEVA-MAMBOSU_$(date +'%Y-%m-%d').zip"
           cd AnyKernel3
           zip -r9 "../$ZIP_NAME" * -x .git/*
           cd ..
@@ -248,20 +284,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           files: ${{ env.ZIP_NAME }}
-          tag_name: "ProjectEVA-XXKSU"
+          tag_name: "ProjectEVA-MAMBOSU"
 
       - name: "📡 [MAGI_SYSTEM] :: BROADCAST_STATUS"
         if: success()
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/ProjectEVA-XXKSU"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/ProjectEVA-MAMBOSU"
           MESSAGE="<b>🚨 MAGI SYSTEM // PRIORITY ALERT 🚨</b>%0A%0A"
-          MESSAGE="${MESSAGE}<b>OPERATION:</b> ProjectEVA XXKSU%0A"
+          MESSAGE="${MESSAGE}<b>OPERATION:</b> ProjectEVA MAMBOSU%0A"
           MESSAGE="${MESSAGE}<b>STATUS:</b> <pre>MISSION ACCOMPLISHED</pre>%0A%0A"
           MESSAGE="${MESSAGE}<b>📦 CONTAINMENT UNIT:</b>%0A"
           MESSAGE="${MESSAGE}<code>${{ env.ZIP_NAME }}</code>%0A%0A"
           MESSAGE="${MESSAGE}<b>📊 SYNCHRONIZATION REPORT:</b>%0A"
-          MESSAGE="${MESSAGE}⬢ UNIT-01: GKI + XXKSU%0A"
-          MESSAGE="${MESSAGE}⬢ UNIT-02: CLO + XXKSU%0A"
+          MESSAGE="${MESSAGE}⬢ UNIT-01: GKI + MAMBOSU + SUSFS%0A"
+          MESSAGE="${MESSAGE}⬢ UNIT-02: CLO + MAMBOSU + SUSFS%0A"
           MESSAGE="${MESSAGE}⬢ DUMMY: NO-KSU VARIANTS%0A%0A"
           MESSAGE="${MESSAGE}🔗 <a href='${RELEASE_URL}'>ACCESS TERMINAL DOGMA</a>"
           
