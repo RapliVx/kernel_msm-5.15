@@ -137,10 +137,10 @@ jobs:
         run: |
           set -e
           
-          # Cleanup area
+          # Cleanup
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          # 1. Install MamboSU (RapliVx) - Setup KernelSU dulu agar Kconfig source tersedia
+          # 1. Install MamboSU (RapliVx) - KernelSU-Next
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
           
@@ -154,27 +154,34 @@ jobs:
              patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ AT-FIELD: Patch conflict ignored."
           fi
           
-          # Copy SUSFS Source
+          # Install SUSFS Headers/Source
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h || true
+          
+          # Symlink check
+          if [ ! -L "drivers/kernelsu" ]; then
+             ln -sf ../KernelSU drivers/kernelsu
+          fi
 
           # 3. [CRITICAL FIX] Ensure Drivers Kconfig sources KernelSU
-          # Kadang setup.sh gagal melakukan ini di beberapa environment CI, menyebabkan Config KSU tidak dikenali
+          # Wajib agar CONFIG_KSU_SUSFS terbaca oleh sistem build
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
              echo "⚠️ Injecting KernelSU Kconfig manually..."
              sed -i "/endmenu/i source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
           fi
 
           # 4. Apply Configs (NUCLEAR OPTION)
-          # Kita hapus config lama dan inject dependensi KALLSYMS agar KPROBES valid
           echo "⚠️ FORCING CONFIGURATIONS..."
           
+          # Bersihkan config lama agar tidak konflik
           sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KPROBES/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
+          sed -i '/CONFIG_OVERLAY_FS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
+          # Inject Config Baru + Dependensi Wajib
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           # --- KSU & SUSFS ---
           CONFIG_KSU=y
@@ -193,24 +200,25 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_SU=y
+          CONFIG_OVERLAY_FS=y
           
           # --- DEPENDENCIES (WAJIB ADA) ---
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
+          CONFIG_FTRACE=y
           CONFIG_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
-          CONFIG_FTRACE=y
-          CONFIG_OVERLAY_FS=y
           EOF
           
           rm -rf susfs4ksu
           echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED."
-          
+
       - name: "⬢ [OPTIMIZATION] :: REMOVING_LIMITERS"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          echo "CONFIG_KALLSYMS=y" >> "$CONFIG_FILE"
+          
+          # Saya hapus baris CONFIG_KALLSYMS di sini karena sudah ada di step Code 777
           
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
@@ -220,7 +228,6 @@ jobs:
           CONFIG_TCP_CONG_HTCP=n
           CONFIG_TCP_CONG_BBR=y
           CONFIG_DEFAULT_WESTWOOD=y
-          CONFIG_OVERLAY_FS=y
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
