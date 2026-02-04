@@ -70,6 +70,9 @@ jobs:
       LOCAL_VERSION: ${{ matrix.kernel.local_version }}
       OUTPUT_NAME: ${{ matrix.kernel.output_name }}
       WORK_DIR: ${{ github.workspace }}
+      # --- CUSTOM BUILD IDENTITY ---
+      KBUILD_BUILD_USER: "RapliVX"
+      KBUILD_BUILD_HOST: "NyarchLinux"
 
     steps:
       - name: "⬢ [SYSTEM_START] :: GEOFRONT_INIT"
