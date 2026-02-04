@@ -130,17 +130,17 @@ jobs:
           }
 
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
-
+          
       - name: "☢️ [CODE_777] :: MAMBOSU + SUSFS PROTOCOL"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
           
-          # Cleanup area
+          # Cleanup
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          # 1. Install MamboSU (RapliVx)
+          # 1. Install MamboSU
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
           
@@ -149,13 +149,12 @@ jobs:
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
           
           # Apply SUSFS Kernel Patch
-          # Patch inilah yang memodifikasi supercalls.c sehingga butuh susfs.c
           SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
           if [ -f "$SUSFS_PATCH" ]; then
              patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ Patch conflict ignored."
           fi
           
-          # Copy Source Files
+          # Copy Source Files (Tetap dicopy agar fitur lain jalan)
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
@@ -167,23 +166,21 @@ jobs:
           fi
 
           # -----------------------------------------------------------
-          # 🔧 FIX UTAMA: REGISTER SUSFS KE FS/MAKEFILE
+          # 🔧 FIX 1: DISABLE SPOOF UNAME (BYPASS LINKER ERROR)
           # -----------------------------------------------------------
-          # Tanpa ini, supercalls.c akan error karena tidak menemukan fungsi SUSFS
-          if ! grep -q "susfs.o" fs/Makefile; then
-             echo "⚠️ Fixing Linker Error: Registering susfs.o to fs/Makefile..."
-             echo "obj-\$(CONFIG_KSU_SUSFS) += susfs.o" >> fs/Makefile
-          fi
+          # Ini adalah perintah dari Anda. Kita matikan blok kode yang memanggil fungsi spoof.
+          # Hasilnya: Linker tidak akan error mencari symbol 'susfs_uname_is_active'.
+          
+          echo "⚠️ Disabling SUSFS Spoof Uname to fix build error..."
+          sed -i 's/#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME/#if 0 \/\* CONFIG_KSU_SUSFS_SPOOF_UNAME Disabled to fix build \*\//' drivers/kernelsu/supercalls.c
 
-          # Force Configs
+          # 4. Apply Configs (Untuk fitur SUSFS lainnya)
           echo "⚠️ FORCING CONFIGURATIONS..."
           
-          # Hapus config lama
           sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KPROBES/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
-          # Inject Config Baru
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -210,7 +207,7 @@ jobs:
           EOF
           
           rm -rf susfs4ksu
-          echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED."
+          echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED (SPOOF UNAME DISABLED)."
 
       - name: "⬢ [OPTIMIZATION] :: REMOVING_LIMITERS"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
@@ -230,14 +227,6 @@ jobs:
           CONFIG_TMPFS_XATTR=y
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
-
-      - name: Apply common fixes
-        working-directory: gki/common
-        run: |
-          echo "Applying fixes for Kingfinik98 kernel source..."
-          echo "🛠️ Applying fix for undefined SUSFS symbols (KernelSU-Next)..."
-          sed -i 's/#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME/#if 0 \/\* CONFIG_KSU_SUSFS_SPOOF_UNAME Disabled to fix build \*\//' drivers/kernelsu/supercalls.c
-            echo "SUSFS symbol fix applied for KernelSU-Next."
 
       - name: "⚔️ [OPERATION_START] :: COMPILATION_PROCESS"
         working-directory: ${{ env.WORK_DIR }}
