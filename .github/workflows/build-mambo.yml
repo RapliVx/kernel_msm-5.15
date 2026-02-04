@@ -99,6 +99,11 @@ jobs:
           tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
           rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
 
+          # Cleanup Unused Clang
+          rm -rf prebuilts/clang/host/linux-x86/clang-3289846
+          rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
+          rm -rf prebuilts/clang/host/linux-x86/clang-stable
+
           # Config Update
           sed -i \
            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
