@@ -137,10 +137,10 @@ jobs:
         run: |
           set -e
           
-          # Cleanup
+          # Cleanup area
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          # 1. Install MamboSU (RapliVx) - KernelSU-Next
+          # 1. Install MamboSU (RapliVx)
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
           
@@ -149,12 +149,13 @@ jobs:
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
           
           # Apply SUSFS Kernel Patch
+          # Patch inilah yang memodifikasi supercalls.c sehingga butuh susfs.c
           SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
           if [ -f "$SUSFS_PATCH" ]; then
-             patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ AT-FIELD: Patch conflict ignored."
+             patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ Patch conflict ignored."
           fi
           
-          # Install SUSFS Headers/Source
+          # Copy Source Files
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
@@ -165,25 +166,25 @@ jobs:
              ln -sf ../KernelSU drivers/kernelsu
           fi
 
-          # 3. [CRITICAL FIX] Ensure Drivers Kconfig sources KernelSU
-          # Wajib agar CONFIG_KSU_SUSFS terbaca oleh sistem build
-          if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
-             echo "⚠️ Injecting KernelSU Kconfig manually..."
-             sed -i "/endmenu/i source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
+          # -----------------------------------------------------------
+          # 🔧 FIX UTAMA: REGISTER SUSFS KE FS/MAKEFILE
+          # -----------------------------------------------------------
+          # Tanpa ini, supercalls.c akan error karena tidak menemukan fungsi SUSFS
+          if ! grep -q "susfs.o" fs/Makefile; then
+             echo "⚠️ Fixing Linker Error: Registering susfs.o to fs/Makefile..."
+             echo "obj-\$(CONFIG_KSU_SUSFS) += susfs.o" >> fs/Makefile
           fi
 
-          # 4. Apply Configs (NUCLEAR OPTION)
+          # Force Configs
           echo "⚠️ FORCING CONFIGURATIONS..."
           
-          # Bersihkan config lama agar tidak konflik
+          # Hapus config lama
           sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KPROBES/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
-          sed -i '/CONFIG_OVERLAY_FS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
-          # Inject Config Baru + Dependensi Wajib
+          # Inject Config Baru
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
-          # --- KSU & SUSFS ---
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -192,7 +193,7 @@ jobs:
           CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
           CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=n
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
           CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
           CONFIG_KSU_SUSFS_SPOOF_UNAME=y
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
@@ -201,8 +202,6 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_SU=y
           CONFIG_OVERLAY_FS=y
-          
-          # --- DEPENDENCIES (WAJIB ADA) ---
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
           CONFIG_FTRACE=y
