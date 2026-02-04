@@ -131,16 +131,20 @@ jobs:
 
           apply_patch "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-gki-fixup.patch"
 
-      - name: "☢️ [CODE_777] :: MAMBOSU + SUSFS PROTOCOL"
+            - name: "☢️ [CODE_777] :: MAMBOSU + SUSFS PROTOCOL"
         if: matrix.kernel.enable_ksu == true
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
           
-          # Cleanup
+          # Cleanup area
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          # 1. Prepare SUSFS Drivers (Kernel Side)
+          # 1. Install MamboSU (RapliVx) - Setup KernelSU dulu agar Kconfig source tersedia
+          echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+          
+          # 2. Prepare SUSFS Drivers
           echo "📦 [SUSFS_SYSTEM] :: RETRIEVING DRIVERS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
           
@@ -150,32 +154,30 @@ jobs:
              patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ AT-FIELD: Patch conflict ignored."
           fi
           
-          # Install SUSFS Headers/Source
+          # Copy SUSFS Source
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h || true
-          
-          # 2. Install MamboSU (RapliVx)
-          echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-          
-          # Symlink check
-          if [ ! -L "drivers/kernelsu" ]; then
-             ln -sf ../KernelSU drivers/kernelsu
+
+          # 3. [CRITICAL FIX] Ensure Drivers Kconfig sources KernelSU
+          # Kadang setup.sh gagal melakukan ini di beberapa environment CI, menyebabkan Config KSU tidak dikenali
+          if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+             echo "⚠️ Injecting KernelSU Kconfig manually..."
+             sed -i "/endmenu/i source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
           fi
 
-          # 3. Apply Configs (STRICT ORDER FOR DEPENDENCIES)
-          # Kita hapus CONFIG_HAVE_KPROBES (biarkan auto)
-          # Kita WAJIB pasang CONFIG_KALLSYMS=y agar KPROBES valid
+          # 4. Apply Configs (NUCLEAR OPTION)
+          # Kita hapus config lama dan inject dependensi KALLSYMS agar KPROBES valid
+          echo "⚠️ FORCING CONFIGURATIONS..."
+          
+          sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
+          sed -i '/CONFIG_KPROBES/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
+          sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
+          # --- KSU & SUSFS ---
           CONFIG_KSU=y
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          CONFIG_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          CONFIG_OVERLAY_FS=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -191,11 +193,19 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_SU=y
+          
+          # --- DEPENDENCIES (WAJIB ADA) ---
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
+          CONFIG_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          CONFIG_FTRACE=y
+          CONFIG_OVERLAY_FS=y
           EOF
           
           rm -rf susfs4ksu
           echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED."
-
+          
       - name: "⬢ [OPTIMIZATION] :: REMOVING_LIMITERS"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
