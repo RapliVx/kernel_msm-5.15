@@ -160,16 +160,20 @@ jobs:
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
           
-          # Symlink check (Mambo setup usually creates KernelSU dir, ensuring symlink)
+          # Symlink check
           if [ ! -L "drivers/kernelsu" ]; then
              ln -sf ../KernelSU drivers/kernelsu
           fi
 
-          # 3. Apply Configs
+          # 3. Apply Configs (STRICT ORDER FOR DEPENDENCIES)
+          # Kita hapus CONFIG_HAVE_KPROBES (biarkan auto)
+          # Kita WAJIB pasang CONFIG_KALLSYMS=y agar KPROBES valid
+          
           cat >> "arch/arm64/configs/${{ env.DEFCONFIG_NAME }}" << 'EOF'
           CONFIG_KSU=y
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
           CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
           CONFIG_KPROBE_EVENTS=y
           CONFIG_OVERLAY_FS=y
           CONFIG_KSU_SUSFS=y
