@@ -1,9 +1,12 @@
-name: "ProjectEVA: MAMBOSU // SUSFS"
+name: "ProjectEVA: MAMBOSU"
 
 env:
   OUT_DIR: "out"
   KERNEL_VERSION: "5.15"
   ANDROID_VERSION: "13"
+  # Pastikan Secrets ini ada di Repo Settings
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
 on:
   schedule:
@@ -27,8 +30,7 @@ jobs:
             local_version: "-ProjectEVA-01-GKI"
             output_name: "Image.gki.ksu"
             enable_ksu: true
-            extra_patches:
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+            
           - name: "UNIT-02 (CLO)"
             dir: "common_clo"
             repo_name: "clo"
@@ -38,8 +40,7 @@ jobs:
             local_version: "-ProjectEVA-02-CLO"
             output_name: "Image.clo.ksu"
             enable_ksu: true
-            extra_patches:
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+
           - name: "DUMMY-PLUG (GKI-NoKSU)"
             dir: "common_gki_noksu"
             repo_name: "common"
@@ -49,8 +50,7 @@ jobs:
             local_version: "-ProjectEVA-DUMMY-GKI"
             output_name: "Image.gki.noksu"
             enable_ksu: false
-            extra_patches:
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
+
           - name: "DUMMY-PLUG (CLO-NoKSU)"
             dir: "common_clo_noksu"
             repo_name: "clo"
@@ -60,8 +60,6 @@ jobs:
             local_version: "-ProjectEVA-DUMMY-CLO"
             output_name: "Image.clo.noksu"
             enable_ksu: false
-            extra_patches:
-              - "https://raw.githubusercontent.com/topnotchfreaks/kernel_patches/main/0001-scripts-sign-builds.patch"
 
     env:
       KERNEL_LOC_DIR: ${{ matrix.kernel.dir }}
@@ -101,11 +99,6 @@ jobs:
           tar -xzf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz -C prebuilts/clang/host/linux-x86/clang-r547379
           rm -rf prebuilts/clang/host/linux-x86/clang-r547379.tar.gz
 
-          # Cleanup
-          rm -rf prebuilts/clang/host/linux-x86/clang-3289846
-          rm -rf prebuilts/clang/host/linux-x86/clang-r450784e
-          rm -rf prebuilts/clang/host/linux-x86/clang-stable
-          
           # Config Update
           sed -i \
            -e 's/^BRANCH=.*/BRANCH=android13-5.15/' \
@@ -136,47 +129,29 @@ jobs:
         working-directory: ./${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           set -e
-          
-          # Cleanup
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
-          # 1. Install MamboSU
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
           curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
           
-          # 2. Prepare SUSFS Drivers
           echo "📦 [SUSFS_SYSTEM] :: RETRIEVING DRIVERS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
           
-          # Apply SUSFS Kernel Patch
           SUSFS_PATCH="susfs4ksu/kernel_patches/50_add_susfs_in_gki-android13-5.15.patch"
           if [ -f "$SUSFS_PATCH" ]; then
              patch -p1 --forward < "$SUSFS_PATCH" || echo "⚠️ Patch conflict ignored."
           fi
           
-          # Copy Source Files (Tetap dicopy agar fitur lain jalan)
           mkdir -p fs include/linux
           cp -f susfs4ksu/kernel_patches/fs/susfs.c fs/susfs.c
           cp -f susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/susfs.h
           cp -f susfs4ksu/kernel_patches/include/linux/susfs_def.h include/linux/susfs_def.h || true
           
-          # Symlink check
           if [ ! -L "drivers/kernelsu" ]; then
              ln -sf ../KernelSU drivers/kernelsu
           fi
 
-          # -----------------------------------------------------------
-          # 🔧 FIX 1: DISABLE SPOOF UNAME (BYPASS LINKER ERROR)
-          # -----------------------------------------------------------
-          # Ini adalah perintah dari Anda. Kita matikan blok kode yang memanggil fungsi spoof.
-          # Hasilnya: Linker tidak akan error mencari symbol 'susfs_uname_is_active'.
-          
-          echo "⚠️ Disabling SUSFS Spoof Uname to fix build error..."
-          sed -i 's/#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME/#if 0 \/\* CONFIG_KSU_SUSFS_SPOOF_UNAME Disabled to fix build \*\//' drivers/kernelsu/supercalls.c
-
-          # 4. Apply Configs (Untuk fitur SUSFS lainnya)
           echo "⚠️ FORCING CONFIGURATIONS..."
-          
           sed -i '/CONFIG_KSU/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KPROBES/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
           sed -i '/CONFIG_KALLSYMS/d' arch/arm64/configs/${{ env.DEFCONFIG_NAME }}
@@ -207,15 +182,12 @@ jobs:
           EOF
           
           rm -rf susfs4ksu
-          echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED (SPOOF UNAME DISABLED)."
+          echo "✅ MAMBOSU + SUSFS: SYNCHRONIZED."
 
       - name: "⬢ [OPTIMIZATION] :: REMOVING_LIMITERS"
         working-directory: ${{ env.KERNEL_LOC_DIR }}/${{ env.KERNEL_NAME }}
         run: |
           CONFIG_FILE="./arch/arm64/configs/${{ env.DEFCONFIG_NAME }}"
-          
-          # Saya hapus baris CONFIG_KALLSYMS di sini karena sudah ada di step Code 777
-          
           cat >> "$CONFIG_FILE" << 'EOF'
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
           CONFIG_TCP_CONG_ADVANCED=y
@@ -256,66 +228,125 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: ./artifacts/
+          # Tidak menyebutkan 'name', sehingga akan mendownload semua artifact dari matrix
 
-      - name: "📦 [COMPLETION] :: CREATE_RELEASE_PACKAGE"
+      - name: "📦 [COMPLETION] :: SEPARATE_PACKAGING_PROTOCOL"
         run: |
           set -e
-
+          
           # Clone AnyKernel3
-          git clone --depth=1 https://github.com/topnotchfreaks/AnyKernel3 -b YASK AnyKernel3
-
-          # Copy kernel images
-          find ./artifacts -name "Image.*" -exec cp {} AnyKernel3/ \;
+          git clone --depth=1 https://github.com/RapliVx/AnyKernel3.git -b GKI AnyKernel3
+          
+          # Create Output Directory
+          mkdir -p release_zips
 
           # Create Custom ASCII Banner
-          cat > AnyKernel3/banner << 'EOF'
-          ⢠⡤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-          ⠀⠈⠪⡑⢄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢀⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠈⠢⡉⠢⡀⠀⠀⠀⠀⠀⠀⠀⡠⠄⠒⣲⠠⣲⠅⠀⣻⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⢌⠀⢄⠀⠀⠀⢀⣾⡴⡆⢠⢛⢗⡽⠃⣼⠁⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠑⢤⢓⠤⠔⠁⠀⣸⠤⠊⢲⣿⠀⢰⡈⠀⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⢄⠇⣤⣾⠮⢹⡰⡕⢉⠙⡙⠀⠀⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣞⣋⢥⣱⢻⡭⣭⣶⢋⢂⠙⢗⡍⠉⠰⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠃⠖⠀⣿⣷⣌⢫⢸⠎⠀⠀⢙⡆⠀⢃⡀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢾⠟⠼⡞⠀⠉⠙⠄⠀⡘⢦⡀⡸
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢣⡰⢸⡇⠀⠀⠀⠀⠀⠈⠑⠵⠇
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢓⡘⡁⠀⠀⠀⠀⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⢱⢃⠀⠀⠀⠀⠀⠀⠀⠀⠀
-          ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀
-
-          ProjectEVA // MAMBOSU PROTOCOL
+          cat > AnyKernel3/banner << 'EOF'                                  
+           SORY                                  
+           QXQVYXY                               
+           SNRXWYXZ                           RNKJOY          
+            YXYYYYYYXY                   PLOSUYXYOXNJCV          
+              YXY YXYXSRV            VTV LZUKGLDDWPARAS          
+                YXYYYVUUUYY        QEAAAIXPNOJCEDLTAQAR          
+                  YYYVUVT YXY     WLFPSNGPNKTLJNAUIXCHV          
+                    YWQYUPTSJISPLSQAAEPHGFWGLEAJPMLM              
+                      TQR RPKJHFPIVQQLYMCFTBIAJYPPNP              
+                        RNTSFMGHPMAAAAKUFJURFL VRXNT              
+                          WUONRTOAFGQRMLTKMOOPWWTPUVQRW          
+                            XWXWOAAANOLTTMJVTMWZXXYSVTU VTV      
+                              PMXPVWRSUSXSSSYOTVSUYURSXYTYSY      
+                              LVNTOWJCPNUMUSWMSILQYXXYZXVSXWX    
+                              QLPQGJMYNJXPSSMWSVPOKRZXYY YWXTW   
+                                  WUW QHSLTUVQPJNRSO YZZVTYTXU   
+                                      UIKJUOMTOSULKR ZYYUXTYVW   
+                                      VTMTPGSJ         XVUYVYZ   
+                                      VYTRULUM         ZYWVWXZ   
+                                      WUVXSROP           YWWY    
+                                       YTQZLNR                   
+                                       PURTWU                   
+                                       SOXXTU                   
+                                        TQOSU                   
+                                        YXXWX                   
+          
+           ProjectEVA // MAMBOSU PROTOCOL
+           BY RapliVX
           EOF
 
-          # Create ZIP
-          ZIP_NAME="ProjectEVA-MAMBOSU_$(date +'%Y-%m-%d').zip"
-          cd AnyKernel3
-          zip -r9 "../$ZIP_NAME" * -x .git/*
-          cd ..
+          # --- LOOPING THROUGH ARTIFACTS ---
+          # Find all files starting with Image. in the artifacts folder
+          find ./artifacts -name "Image.*" | while read img_path; do
+            
+            echo "::group::Processing $img_path"
+            
+            # Determine suffix based on filename
+            filename=$(basename "$img_path")
+            
+            ZIP_TAG="UNKNOWN"
+            if [[ "$filename" == *"gki.ksu"* ]]; then ZIP_TAG="GKI-KSU"; fi
+            if [[ "$filename" == *"clo.ksu"* ]]; then ZIP_TAG="CLO-KSU"; fi
+            if [[ "$filename" == *"gki.noksu"* ]]; then ZIP_TAG="GKI-NoKSU"; fi
+            if [[ "$filename" == *"clo.noksu"* ]]; then ZIP_TAG="CLO-NoKSU"; fi
+            
+            echo "-> Identified Variant: $ZIP_TAG"
+            
+            # Prepare AnyKernel Directory
+            # Copy file and RENAME it to "Image" (Important for your new anykernel.sh)
+            cp -f "$img_path" AnyKernel3/Image
+            
+            # Zip it
+            ZIP_NAME="ProjectEVA-${ZIP_TAG}_$(date +'%Y-%m-%d').zip"
+            
+            cd AnyKernel3
+            zip -r9 "../release_zips/$ZIP_NAME" * -x .git/* README.md
+            cd ..
+            
+            # Cleanup for next iteration
+            rm AnyKernel3/Image
+            
+            echo "-> Created: $ZIP_NAME"
+            echo "::endgroup::"
+            
+          done
           
-          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-          echo "✅ INSTRUMENTALITY COMPLETE: $ZIP_NAME"
+          echo "✅ ALL VARIANTS PACKAGED."
 
       - name: "⬆️ [DEPLOY] :: GITHUB_RELEASE"
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
-          files: ${{ env.ZIP_NAME }}
-          tag_name: "ProjectEVA-MAMBOSU"
+          files: release_zips/*.zip
+          tag_name: "ProjectEVA-MAMBOSU-${{ github.run_number }}"
+          name: "ProjectEVA: MAMBOSU (Build ${{ github.run_number }})"
+          body: |
+            ## 🛡️ EVA-UNIT: DEPLOYMENT LOG
+            **Build Date:** ${{ env.BUILD_TIME }}
+            
+            ### 📦 Artifacts:
+            1. **GKI-KSU:** Google Kernel Infrastructure + KernelSU
+            2. **CLO-KSU:** CodeLinaro Optimized + KernelSU
+            3. **GKI-NoKSU:** Stock-like GKI
+            4. **CLO-NoKSU:** Stock-like CLO
+            
+            *Flash carefully. Do not interrupt the synchronization.*
 
       - name: "📡 [MAGI_SYSTEM] :: BROADCAST_STATUS"
         if: success()
         run: |
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/ProjectEVA-MAMBOSU"
+          # Generate file list for telegram
+          cd release_zips
+          FILE_LIST=""
+          for f in *.zip; do
+            FILE_LIST="${FILE_LIST}📦 <code>${f}</code>%0A"
+          done
+          
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/ProjectEVA-MAMBOSU-${{ github.run_number }}"
+          
           MESSAGE="<b>🚨 MAGI SYSTEM // PRIORITY ALERT 🚨</b>%0A%0A"
           MESSAGE="${MESSAGE}<b>OPERATION:</b> ProjectEVA MAMBOSU%0A"
           MESSAGE="${MESSAGE}<b>STATUS:</b> <pre>MISSION ACCOMPLISHED</pre>%0A%0A"
-          MESSAGE="${MESSAGE}<b>📦 CONTAINMENT UNIT:</b>%0A"
-          MESSAGE="${MESSAGE}<code>${{ env.ZIP_NAME }}</code>%0A%0A"
-          MESSAGE="${MESSAGE}<b>📊 SYNCHRONIZATION REPORT:</b>%0A"
-          MESSAGE="${MESSAGE}⬢ UNIT-01: GKI + MAMBOSU + SUSFS%0A"
-          MESSAGE="${MESSAGE}⬢ UNIT-02: CLO + MAMBOSU + SUSFS%0A"
-          MESSAGE="${MESSAGE}⬢ DUMMY: NO-KSU VARIANTS%0A%0A"
+          MESSAGE="${MESSAGE}<b>📦 CONTAINMENT UNITS GENERATED:</b>%0A"
+          MESSAGE="${MESSAGE}${FILE_LIST}%0A"
           MESSAGE="${MESSAGE}🔗 <a href='${RELEASE_URL}'>ACCESS TERMINAL DOGMA</a>"
           
           curl -s -X POST "https://api.telegram.org/bot${{ env.TELEGRAM_BOT_TOKEN }}/sendMessage" \
