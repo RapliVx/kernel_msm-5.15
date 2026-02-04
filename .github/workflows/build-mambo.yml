@@ -231,6 +231,14 @@ jobs:
           CONFIG_TMPFS_POSIX_ACL=y
           EOF
 
+      - name: Apply common fixes
+        working-directory: gki/common
+        run: |
+          echo "Applying fixes for Kingfinik98 kernel source..."
+          echo "🛠️ Applying fix for undefined SUSFS symbols (KernelSU-Next)..."
+          sed -i 's/#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME/#if 0 \/\* CONFIG_KSU_SUSFS_SPOOF_UNAME Disabled to fix build \*\//' drivers/kernelsu/supercalls.c
+            echo "SUSFS symbol fix applied for KernelSU-Next."
+
       - name: "⚔️ [OPERATION_START] :: COMPILATION_PROCESS"
         working-directory: ${{ env.WORK_DIR }}
         run: |
