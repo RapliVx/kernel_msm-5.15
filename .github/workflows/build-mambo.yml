@@ -140,7 +140,7 @@ jobs:
           rm -rf ./KernelSU ./drivers/kernelsu ./MamboSU
           
           echo "⚠️ INITIATING MAMBOSU (SUSFS VARIANT)..."
-          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s susfs-mambo-master
           
           echo "📦 [SUSFS_SYSTEM] :: RETRIEVING DRIVERS..."
           git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android13-5.15
